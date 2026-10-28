@@ -17,7 +17,7 @@
 
 ---
 
-## ⚡ Lancement rapide
+## Lancement rapide
 
 Ouvre un terminal (`Ctrl` + `Alt` + `T`), colle **une** de ces commandes et appuie sur Entrée :
 
@@ -35,11 +35,11 @@ curl -fsSL https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh | sud
 
 Le script te demande ton mot de passe, analyse ton PC, te montre ce qui ne va pas, puis te demande la permission avant de réparer.
 
-**À la fin : redémarre ton PC, branche ton câble HDMI, c'est fini.** 🎉
+**À la fin : redémarre ton PC, branche ton câble HDMI, c'est fini.**
 
 ---
 
-## 🤔 Pourquoi l'HDMI ne marche pas ?
+## Pourquoi l'HDMI ne marche pas ?
 
 Sur la plupart des PC portables « gaming » ou avec une carte NVIDIA, **le port HDMI est câblé directement sur la carte NVIDIA**. Si le pilote NVIDIA ne se charge pas, l'écran externe reste noir, même si l'écran du portable marche très bien (lui passe par la puce Intel/AMD).
 
@@ -47,16 +47,16 @@ Les causes les plus fréquentes :
 
 | Cause | Ce qui se passe |
 |---|---|
-| 🔄 **Mise à jour du noyau** | Ubuntu installe un nouveau noyau Linux, mais pas le pilote NVIDIA qui va avec. Au redémarrage, plus de pilote. |
-| 📦 **Pilote jamais installé** | Linux utilise `nouveau`, le pilote libre, qui gère mal les cartes récentes. |
-| 🔒 **Secure Boot** | Le pilote est installé mais le BIOS refuse de le charger car il n'est pas signé. |
-| 💤 **Mode PRIME « intel »** | La carte NVIDIA est éteinte pour économiser la batterie… et le port HDMI avec. |
-| ⏳ **Pas redémarré** | Le pilote a été mis à jour mais l'ancien tourne encore (*version mismatch*). |
-| 💥 **Installation interrompue** | Une mise à jour coupée en plein milieu a laissé des paquets à moitié installés. |
+| **Mise à jour du noyau** | Ubuntu installe un nouveau noyau Linux, mais pas le pilote NVIDIA qui va avec. Au redémarrage, plus de pilote. |
+| **Pilote jamais installé** | Linux utilise `nouveau`, le pilote libre, qui gère mal les cartes récentes. |
+| **Secure Boot** | Le pilote est installé mais le BIOS refuse de le charger car il n'est pas signé. |
+| **Mode PRIME « intel »** | La carte NVIDIA est éteinte pour économiser la batterie… et le port HDMI avec. |
+| **Pas redémarré** | Le pilote a été mis à jour mais l'ancien tourne encore (*version mismatch*). |
+| **Installation interrompue** | Une mise à jour coupée en plein milieu a laissé des paquets à moitié installés. |
 
 ---
 
-## 🛠️ Ce que fait le script
+## Ce que fait le script
 
 ```
   ━━ 1/5 · Analyse du système ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -110,7 +110,7 @@ En détail :
 
 ---
 
-## 🔒 Secure Boot : l'écran bleu au redémarrage
+## Secure Boot : l'écran bleu au redémarrage
 
 Si Secure Boot est activé et que le pilote a dû être compilé, le script te demande de **choisir un mot de passe** (ex : `12345678`).
 
@@ -125,7 +125,7 @@ Si tu as raté l'écran (il disparaît après 10 s), relance simplement le scrip
 
 ---
 
-## ⚙️ Options
+## Options
 
 ```bash
 # Juste analyser, sans rien modifier
@@ -151,22 +151,22 @@ sudo ./fix.sh
 
 ---
 
-## 🐧 Distributions supportées
+## Distributions supportées
 
 | Distribution | Support |
 |---|---|
-| Ubuntu 22.04 / 24.04 et + (et variantes Kubuntu, Xubuntu…) | ✅ Complet |
-| Linux Mint, Pop!\_OS, Zorin OS, elementary OS | ✅ Complet (basées sur Ubuntu) |
-| Debian 12 / 13 | 🧪 Expérimental (nécessite les dépôts `non-free`) |
-| Fedora | 🧪 Expérimental (active RPM Fusion) |
-| Arch Linux, EndeavourOS | 🧪 Expérimental (`nvidia-open-dkms`, cartes RTX 20xx / GTX 16xx et +) |
-| Manjaro | ℹ️ Le script t'indique la commande `mhwd` à lancer |
+| Ubuntu 22.04 / 24.04 et + (et variantes Kubuntu, Xubuntu…) | Complet |
+| Linux Mint, Pop!\_OS, Zorin OS, elementary OS | Complet (basées sur Ubuntu) |
+| Debian 12 / 13 | Expérimental (nécessite les dépôts `non-free`) |
+| Fedora | Expérimental (active RPM Fusion) |
+| Arch Linux, EndeavourOS | Expérimental (`nvidia-open-dkms`, cartes RTX 20xx / GTX 16xx et +) |
+| Manjaro | Le script t'indique la commande `mhwd` à lancer |
 
 Cartes **AMD** et **Intel** seules : leurs pilotes sont déjà dans le noyau, le script te donne quelques pistes et peut mettre à jour `linux-firmware`.
 
 ---
 
-## 🆘 Ça ne marche toujours pas ?
+## Ça ne marche toujours pas ?
 
 1. **As-tu bien redémarré ?** Rien ne change avant le redémarrage.
 2. **Force la carte NVIDIA** pour tout l'affichage (consomme plus de batterie) :
@@ -180,7 +180,7 @@ Cartes **AMD** et **Intel** seules : leurs pilotes sont déjà dans le noyau, le
 
 ---
 
-## ↩️ Annuler les changements
+## Annuler les changements
 
 Le script n'ajoute que des choses standard (pilotes officiels) et deux petits fichiers de configuration :
 
@@ -200,13 +200,13 @@ Le journal complet de tout ce qui a été fait est dans `/var/log/driver-fix.log
 
 ---
 
-## 🔐 Sécurité
+## Sécurité
 
 Lancer un script trouvé sur Internet avec `sudo` donne tous les droits à ce script. Ce dépôt est public : **lis [`fix.sh`](fix.sh) avant de le lancer** si tu as un doute, et teste d'abord avec `--diagnose` ou `--dry-run`.
 
 ---
 
-## 🤝 Contribuer
+## Contribuer
 
 Une distribution, un modèle de PC ou un cas qui ne marche pas ? Les issues et pull requests sont les bienvenues.
 
@@ -214,6 +214,6 @@ Une distribution, un modèle de PC ou un cas qui ne marche pas ? Les issues et p
 - Vérifie ton code avec [`shellcheck`](https://www.shellcheck.net/) (lancé automatiquement sur chaque PR).
 - Teste avec `--dry-run` avant de proposer une modification.
 
-## 📄 Licence
+## Licence
 
 [MIT](LICENSE) — libre d'utilisation, de modification et de partage.
