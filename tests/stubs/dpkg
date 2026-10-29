@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+FAKE=${FAKE:?FAKE non défini (stub de test)}
+echo "dpkg $*" >>"$FAKE/calls"
+case $1 in
+  --audit) cat "$FAKE/dpkg_audit" 2>/dev/null ;;
+  -S) grep -F ": $2" "$FAKE/owners" 2>/dev/null || { echo "dpkg-query: no path found matching pattern $2" >&2; exit 1; } ;;
+esac
+exit 0

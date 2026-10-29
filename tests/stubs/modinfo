@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+FAKE=${FAKE:?FAKE non défini (stub de test)}
+k="" field=""
+while (($#)); do
+  case $1 in
+    -k) k=$2; shift ;;
+    -F) field=$2; shift ;;
+  esac
+  shift
+done
+d=$FAKE/mod/$k
+[[ -d $d ]] || { echo "modinfo: ERROR: Module nvidia not found." >&2; exit 1; }
+if [[ -n $field ]]; then
+  [[ -f $d/$field ]] && cat "$d/$field"
+else
+  echo "filename: $(cat "$d/filename" 2>/dev/null)"
+fi
+exit 0

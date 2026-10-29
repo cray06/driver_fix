@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+FAKE=${FAKE:?FAKE non défini (stub de test)}
+name=${0##*/}
+case $name in
+  uname)
+    case ${1:-} in
+      -r) cat "$FAKE/kernel" ;;
+      *) echo "Linux fake $(cat "$FAKE/kernel") x86_64" ;;
+    esac
+    ;;
+  lspci)
+    addr=${2:-}
+    n=$(grep -F "$addr|" "$FAKE/lspci" 2>/dev/null | cut -d'|' -f2)
+    [[ -n $n ]] && printf '%s VGA compatible controller: %s\n' "${addr#0000:}" "$n"
+    ;;
+  nvidia-smi)
+    cat "$FAKE/nvsmi_out" 2>/dev/null
+    exit "$(cat "$FAKE/nvsmi_rc" 2>/dev/null || echo 0)"
+    ;;
+  journalctl | dmesg) cat "$FAKE/klog" 2>/dev/null ;;
+  ubuntu-drivers) [[ ${1:-} == devices ]] && cat "$FAKE/ubuntu_drivers" 2>/dev/null ;;
+  dkms)
+    echo "dkms $*" >>"$FAKE/calls"
+    case ${1:-} in
+      status) cat "$FAKE/dkms_status" 2>/dev/null ;;
+      autoinstall)
+        [[ -f $FAKE/effects/dkms-autoinstall ]] && bash "$FAKE/effects/dkms-autoinstall"
+        exit "$(cat "$FAKE/dkms_rc" 2>/dev/null || echo 0)"
+        ;;
+    esac
+    ;;
+  mokutil)
+    echo "mokutil $*" >>"$FAKE/calls"
+    case ${1:-} in
+      --sb-state) cat "$FAKE/sb_state" 2>/dev/null || echo "SecureBoot disabled" ;;
+      --test-key) echo "$2 is not enrolled" ;;
+      --generate-hash*) [[ -f $FAKE/mok_old ]] && exit 1; echo '$6$fakesalt$fakehash' ;;
+    esac
+    ;;
+  prime-select)
+    if [[ ${1:-} == query ]]; then cat "$FAKE/prime" 2>/dev/null; else
+      echo "prime-select $*" >>"$FAKE/calls"; echo "$1" >"$FAKE/prime"
+    fi
+    ;;
+  df)
+    echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+    echo "/dev/fake 2000000 1000 $(cat "$FAKE/boot_free" 2>/dev/null || echo 900000) 1% /boot"
+    ;;
+  flock) exit 0 ;;
+  *) echo "$name $*" >>"$FAKE/calls" ;;
+esac
+exit 0

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+FAKE=${FAKE:?FAKE non défini (stub de test)}
+case $1 in
+  show) grep -qx "$2" "$FAKE/available" 2>/dev/null ;;
+  pkgnames) grep "^$2" "$FAKE/available" 2>/dev/null; exit 0 ;;
+  *) exit 0 ;;
+esac

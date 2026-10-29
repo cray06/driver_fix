@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+FAKE=${FAKE:?FAKE non défini (stub de test)}
+echo "apt-get $*" >>"$FAKE/calls"
+args=() sim=0 skip=0
+for a in "$@"; do
+  ((skip)) && { skip=0; continue; }
+  case $a in
+    -s) sim=1 ;;
+    -o) skip=1 ;;
+    -y | -f | --only-upgrade | --reinstall) ;;
+    *) args+=("$a") ;;
+  esac
+done
+action=${args[0]:-}
+pkgs=("${args[@]:1}")
+touch "$FAKE/installed"
+
+if ((sim)); then
+  [[ -f $FAKE/apt_sim_rc ]] && { echo "E: conflit simulé"; exit "$(cat "$FAKE/apt_sim_rc")"; }
+  if [[ $action == remove ]]; then
+    for p in "${pkgs[@]}"; do echo "Remv $p [1.0]"; done
+  else
+    cat "$FAKE/apt_sim" 2>/dev/null
+    for p in "${pkgs[@]}"; do echo "Inst $p (1.0 fake)"; done
+  fi
+  exit 0
+fi
+
+case $action in
+  update) exit "$(cat "$FAKE/apt_update_rc" 2>/dev/null || echo 0)" ;;
+  install)
+    [[ -f $FAKE/apt_fail ]] && { echo "E: échec simulé de l'installation"; exit 100; }
+    ((${#pkgs[@]})) || exit 0
+    while read -r _ p _; do
+      grep -vx "$p" "$FAKE/installed" >"$FAKE/installed.new"; mv "$FAKE/installed.new" "$FAKE/installed"
+    done < <(grep '^Remv ' "$FAKE/apt_sim" 2>/dev/null)
+    for p in "${pkgs[@]}"; do
+      grep -qx "$p" "$FAKE/available" 2>/dev/null || { echo "E: Unable to locate package $p"; exit 100; }
+      grep -qx "$p" "$FAKE/installed" || echo "$p" >>"$FAKE/installed"
+      [[ -f $FAKE/effects/$p ]] && bash "$FAKE/effects/$p"
+    done
+    exit 0
+    ;;
+  remove)
+    for p in "${pkgs[@]}"; do
+      grep -vx "$p" "$FAKE/installed" >"$FAKE/installed.new"; mv "$FAKE/installed.new" "$FAKE/installed"
+      [[ -f $FAKE/effects/remove-$p ]] && bash "$FAKE/effects/remove-$p"
+    done
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac

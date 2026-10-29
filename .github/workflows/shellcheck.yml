@@ -10,8 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntaxe bash
-        run: bash -n fix.sh
+        run: bash -n fix.sh && bash -n tests/run_tests.sh
       - name: ShellCheck
-        run: shellcheck -S warning fix.sh
-      - name: Simulation (--dry-run)
+        run: shellcheck -S warning fix.sh tests/run_tests.sh tests/stubs/*
+      - name: Tests (scénarios simulés, sans GPU)
+        run: bash tests/run_tests.sh
+      - name: Simulation (--dry-run) sur la machine CI
         run: sudo bash fix.sh --dry-run --yes --no-color
+      - name: Diagnostic sur la machine CI
+        run: sudo bash fix.sh --diagnose --no-color
