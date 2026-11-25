@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Syntaxe et ShellCheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntaxe bash
+        run: |
+          bash -n fix.sh
+          bash -n tests/run_tests.sh
+          for f in tests/stubs/*; do bash -n "$f"; done
+      - name: ShellCheck
+        run: shellcheck -S warning fix.sh tests/run_tests.sh tests/stubs/*
+      - name: YAML des workflows et formulaires d'issue
+        run: ruby -ryaml -e 'ARGV.each { |f| YAML.load_file(f) }' .github/workflows/*.yml .github/ISSUE_TEMPLATE/*.yml
+
+  tests:
+    name: Tests (${{ matrix.os }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scénarios simulés (sans GPU)
+        run: VERBOSE=1 bash tests/run_tests.sh
+
+  smoke:
+    name: Exécution réelle (machine CI sans NVIDIA)
+    needs: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aide
+        run: bash fix.sh --help
+      - name: Diagnostic
+        run: sudo bash fix.sh --diagnose --no-color
+      - name: Simulation
+        run: sudo bash fix.sh --dry-run --yes --no-color
+      - name: Rapport de debug
+        run: |
+          dir="$RUNNER_TEMP/report"
+          mkdir -p "$dir"
+          sudo env DRIVER_FIX_REPORT_DIR="$dir" bash fix.sh --debug --no-color
+          report=$(ls "$dir"/driver-fix-debug-*.txt)
+          for section in "## Résumé" "## Machine" "## Système" "## Cartes graphiques et écrans" \
+            "## Pilote NVIDIA" "## Paquets" "## Configuration" "## Journaux" "## Historique driver-fix"; do
+            grep -qF "$section" "$report" || { echo "Section manquante : $section"; exit 1; }
+          done
+          if grep -qF "$(hostname)" "$report"; then echo "Le nom de la machine n'a pas été retiré"; exit 1; fi
+          echo "REPORT=$report" >>"$GITHUB_ENV"
+      - name: Rapport en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-debug-ci
+          path: ${{ env.REPORT }}

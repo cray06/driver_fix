@@ -9,9 +9,15 @@ case $name in
     esac
     ;;
   lspci)
-    addr=${2:-}
-    n=$(grep -F "$addr|" "$FAKE/lspci" 2>/dev/null | cut -d'|' -f2)
-    [[ -n $n ]] && printf '%s VGA compatible controller: %s\n' "${addr#0000:}" "$n"
+    if [[ ${1:-} == -s ]]; then
+      addr=${2:-}
+      n=$(grep -F "$addr|" "$FAKE/lspci" 2>/dev/null | cut -d'|' -f2)
+      [[ -n $n ]] && printf '%s VGA compatible controller: %s\n' "${addr#0000:}" "$n"
+    else
+      while IFS='|' read -r addr n; do
+        printf '%s VGA compatible controller [0300]: %s\n\tKernel driver in use: fake\n' "${addr#0000:}" "$n"
+      done <"$FAKE/lspci"
+    fi
     ;;
   nvidia-smi)
     cat "$FAKE/nvsmi_out" 2>/dev/null

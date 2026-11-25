@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publication de la version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cohérence du tag, de VERSION et du CHANGELOG
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          version=$(sed -nE 's/^VERSION="([^"]+)"$/\1/p' fix.sh)
+          [ "$tag" = "$version" ] || { echo "Le tag v$tag ne correspond pas à VERSION=$version dans fix.sh"; exit 1; }
+          grep -qF "## [$version]" CHANGELOG.md || { echo "Pas d'entrée ## [$version] dans CHANGELOG.md"; exit 1; }
+      - name: ShellCheck
+        run: shellcheck -S warning fix.sh tests/run_tests.sh tests/stubs/*
+      - name: Tests
+        run: VERBOSE=1 bash tests/run_tests.sh
+      - name: Notes de version
+        run: |
+          awk -v v="## [${GITHUB_REF_NAME#v}]" 'index($0, v) == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md >notes.md
+          cat notes.md
+      - name: Release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" fix.sh --title "driver-fix $GITHUB_REF_NAME" --notes-file notes.md

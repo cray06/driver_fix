@@ -1,0 +1,26 @@
+name: Idée ou amélioration
+description: Une distribution à supporter, un message peu clair, une nouvelle vérification…
+title: "[Idée] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Ton idée
+      description: Ce qui manque ou pourrait être mieux, et dans quelle situation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Pourquoi c'est utile
+      description: Qui est concerné (modèle de PC, distribution, carte graphique…) ?
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Rapport --debug (facultatif)
+      description: |
+        Pour une nouvelle distribution ou un nouveau matériel, joins le rapport créé par :
+        `wget -qO- https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh | sudo bash -s -- --debug`

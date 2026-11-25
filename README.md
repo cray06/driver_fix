@@ -8,6 +8,7 @@
 
 **Ton écran HDMI ne marche pas sous Linux ? Une commande, un redémarrage, et dans la plupart des cas c'est réglé.**
 
+[![CI](https://github.com/cray06/driver_fix/actions/workflows/ci.yml/badge.svg)](https://github.com/cray06/driver_fix/actions/workflows/ci.yml)
 ![Bash](https://img.shields.io/badge/bash-script-4EAA25?logo=gnubash&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-support%20complet-E95420?logo=ubuntu&logoColor=white)
 ![NVIDIA](https://img.shields.io/badge/NVIDIA-GeForce%20%2F%20RTX-76B900?logo=nvidia&logoColor=white)
@@ -38,6 +39,28 @@ Le script demande ton mot de passe, puis **fait tout seul, sans question** : il 
 **À la fin : redémarre ton PC, c'est fini.** Le script ne redémarre jamais à ta place.
 
 Tu veux juste voir ce qui ne va pas, sans rien modifier ? Ajoute `-s -- --diagnose` après `sudo bash`.
+
+---
+
+## Ça n'a pas marché ? Envoie un rapport
+
+Tu as lancé le script, **redémarré**, et l'écran reste noir ? Colle cette commande :
+
+```bash
+wget -qO- https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh | sudo bash -s -- --debug
+```
+
+<details>
+<summary>Avec <code>curl</code></summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh | sudo bash -s -- --debug
+```
+</details>
+
+Elle **ne modifie rien**. Elle crée dans ton dossier personnel un fichier `driver-fix-debug-<date>.txt` qui contient tout ce qu'il faut pour adapter le script à ton PC : modèle de la machine, cartes graphiques, pilote chargé, paquets, Secure Boot, journaux du noyau, historique de driver-fix… Ton nom d'utilisateur, le nom du PC et les identifiants (UUID) sont retirés automatiquement.
+
+À la fin, la commande affiche un **lien qui ouvre une issue déjà pré-remplie**. Il te reste à y glisser le fichier et à décrire ce que tu vois. Le pas à pas complet est dans [CONTRIBUTING.md](CONTRIBUTING.md#signaler-un-problème).
 
 ---
 
@@ -174,6 +197,7 @@ Cette étape au démarrage ne peut pas être automatisée : c'est la protection 
 | Option | Effet |
 |---|---|
 | `-d`, `--diagnose` | Analyse seulement, ne modifie rien |
+| `--debug` | Crée un rapport complet à joindre à une issue (ne modifie rien) |
 | `-n`, `--dry-run` | Affiche tout ce qui serait fait, sans rien modifier |
 | `-i`, `--interactive` | Pose les questions au lieu de tout faire automatiquement |
 | `-p`, `--prime MODE` | Force le mode PRIME : `on-demand`, `nvidia` ou `intel` |
@@ -202,6 +226,7 @@ sudo ./fix.sh
 | Fedora | Expérimental (active RPM Fusion après accord) |
 | Arch Linux, EndeavourOS | Expérimental (`nvidia-open-dkms`, cartes RTX 20xx / GTX 16xx et +) |
 | Manjaro | Le script t'indique la commande `mhwd` à lancer |
+| WSL (Linux dans Windows) | Non concerné : le pilote est celui de Windows, le script le signale |
 
 Cartes **AMD** et **Intel** seules : leurs pilotes sont déjà dans le noyau, le script te donne quelques pistes et peut mettre à jour `linux-firmware`. Sur un portable hybride AMD + NVIDIA, le script ne touche jamais aux paquets du GPU AMD.
 
@@ -230,7 +255,7 @@ Le script ne peut pas tout corriger. Il le dit quand il rencontre :
    puis redémarre. Pour revenir : `sudo prime-select on-demand`.
 4. **Teste un autre câble / une autre entrée** sur l'écran, et branche le câble *avant* d'allumer le PC.
 5. **BIOS** : sur certains portables (Lenovo Legion, ASUS ROG, MSI…), une option « Hybrid Graphics / MUX / Discrete GPU » peut aider. Mets aussi le BIOS à jour.
-6. **Ouvre une issue** avec la sortie de `--diagnose` et le fichier `/var/log/driver-fix.log` (il contient les lignes NVIDIA du journal noyau, les modules par noyau et les paquets installés).
+6. **Envoie un rapport** : lance la commande `--debug` [ci-dessus](#ça-na-pas-marché--envoie-un-rapport), ouvre le lien affiché et joins le fichier créé. Le guide [CONTRIBUTING.md](CONTRIBUTING.md#signaler-un-problème) détaille chaque étape.
 
 ---
 
@@ -275,9 +300,21 @@ bash tests/run_tests.sh blackwell  # filtre par nom
 VERBOSE=1 bash tests/run_tests.sh  # affiche la sortie des scénarios en échec
 ```
 
-Scénarios couverts : RTX 5060 avec module propriétaire et `RmInitAdapter` (diagnostic, réparation, simulation), module open sur le disque mais propriétaire en mémoire, restes de modules propriétaires, compilation DKMS qui donne encore la mauvaise variante, pilote open fonctionnel, pilote absent, GPU AMD seul, RTX 40 propriétaire (non forcée en open), `nvidia-smi` absent ou en échec, Secure Boot qui refuse le module, APT absent, installation APT en échec, conflit APT, retrait non souhaité refusé, firmware GSP manquant, échec persistant après redémarrage, `/boot` presque plein, mode automatique par défaut, enregistrement Secure Boot automatique (et repli si mokutil est trop ancien), `--undo`.
+Scénarios couverts : RTX 5060 avec module propriétaire et `RmInitAdapter` (diagnostic, réparation, simulation), module open sur le disque mais propriétaire en mémoire, restes de modules propriétaires, compilation DKMS qui donne encore la mauvaise variante, pilote open fonctionnel, pilote absent, GPU AMD seul, RTX 40 propriétaire (non forcée en open), `nvidia-smi` absent ou en échec, Secure Boot qui refuse le module, APT absent, installation APT en échec, conflit APT, retrait non souhaité refusé, firmware GSP manquant, échec persistant après redémarrage, `/boot` presque plein, mode automatique par défaut, enregistrement Secure Boot automatique (et repli si mokutil est trop ancien), `--undo`, rapport `--debug` (contenu et anonymisation, avec ou sans NVIDIA), WSL, distribution inconnue.
+
+Deux garde-fous vérifient aussi que chaque option de `--help` est documentée ici et que la version du script a une entrée dans le [CHANGELOG](CHANGELOG.md).
 
 Ces tests vérifient la logique du script, **pas le comportement sur un vrai matériel**.
+
+### Intégration continue
+
+À chaque push et pull request, [GitHub Actions](.github/workflows/ci.yml) lance :
+
+1. la vérification de syntaxe et [ShellCheck](https://www.shellcheck.net/) ;
+2. tous les scénarios de test, sur Ubuntu 22.04 et 24.04 ;
+3. `--diagnose`, `--dry-run` et `--debug` sur une vraie machine Ubuntu (sans GPU NVIDIA), et le rapport produit est gardé comme artefact.
+
+Quand un tag `vX.Y.Z` est poussé, [le workflow de release](.github/workflows/release.yml) relance les tests, vérifie que le tag correspond à `VERSION` et au CHANGELOG, puis publie la release avec `fix.sh`.
 
 ---
 
@@ -285,9 +322,7 @@ Ces tests vérifient la logique du script, **pas le comportement sur un vrai mat
 
 Une distribution, un modèle de PC ou un cas qui ne marche pas ? Les issues et pull requests sont les bienvenues.
 
-- Le script doit rester en **un seul fichier bash**, sans dépendance.
-- Vérifie ton code avec [`shellcheck`](https://www.shellcheck.net/) et lance `bash tests/run_tests.sh` (les deux tournent automatiquement sur chaque PR).
-- Ajoute un scénario de test pour chaque nouveau cas géré.
+Tout est expliqué dans [CONTRIBUTING.md](CONTRIBUTING.md) : comment ouvrir une issue utile, et comment transformer un rapport `--debug` en scénario de test puis en correctif. Les changements de chaque version sont listés dans le [CHANGELOG](CHANGELOG.md).
 
 ## Licence
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guide « Ça ne marche toujours pas ? »
+    url: https://github.com/cray06/driver_fix#ça-ne-marche-toujours-pas-
+    about: Les vérifications à faire avant d'ouvrir une issue.
+  - name: Comment ouvrir une issue utile
+    url: https://github.com/cray06/driver_fix/blob/main/CONTRIBUTING.md#signaler-un-problème
+    about: Créer le rapport --debug et remplir le formulaire, pas à pas.

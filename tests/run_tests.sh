@@ -9,15 +9,17 @@ trap 'rm -rf "$WORK"' EXIT
 FILTER=${1:-}
 
 PASS=0 FAILS=0 CUR="" T="" FAKE="" FR="" OUT="" RC=0
+EXTRA_ENV=()
 K=7.0.0-42-generic
 REAL_TOOLS=(bash cat sed awk grep sort tail head cut tr od basename dirname readlink mkdir rm mv cp
   date sleep timeout env ls wc find mktemp tee touch uniq chmod)
-MISC_STUBS=(uname lspci nvidia-smi journalctl dmesg ubuntu-drivers dkms mokutil prime-select df flock
-  update-initramfs update-grub systemctl sudo)
+MISC_STUBS=(uname lspci lsmod nvidia-smi journalctl dmesg ubuntu-drivers dkms mokutil prime-select df flock
+  update-initramfs update-grub systemctl sudo apt-mark)
 
 scenario() {
   CUR=$1
   T=$WORK/$CUR FAKE=$T/fake FR=$T/root
+  EXTRA_ENV=()
   mkdir -p "$FAKE/effects" "$FAKE/mod" "$T/bin" "$T/sysbin"
   local t s
   for t in "${REAL_TOOLS[@]}"; do
@@ -76,6 +78,13 @@ set_loaded() {
   fi
 }
 
+set_dmi() {
+  local d=$FR/sys/class/dmi/id
+  mkdir -p "$d"
+  echo "$1" >"$d/sys_vendor"; echo "$2" >"$d/product_name"; echo "$3" >"$d/product_version"
+  echo "PF0SECRET" >"$d/product_serial"
+}
+
 nvsmi() { printf '%s\n' "$1" >"$FAKE/nvsmi_out"; echo "$2" >"$FAKE/nvsmi_rc"; }
 nvsmi_ok() { nvsmi "GPU 0: NVIDIA GeForce RTX 5060 Laptop GPU (UUID: GPU-0000)" 0; }
 nvsmi_nodev() { nvsmi "No devices were found" 6; }
@@ -131,7 +140,7 @@ setup_blackwell_proprietary() {
 }
 
 run_fix() {
-  OUT=$(cd "$T" && env -i PATH="$T/bin:$T/sysbin" HOME="$T" TERM=dumb \
+  OUT=$(cd "$T" && env -i PATH="$T/bin:$T/sysbin" HOME="$T" TERM=dumb "${EXTRA_ENV[@]}" \
     DRIVER_FIX_ROOT="$FR" DRIVER_FIX_TEST=1 DRIVER_FIX_LOG="$T/driver-fix.log" FAKE="$FAKE" \
     "$BASH_REAL" "$SCRIPT" --no-color "$@" 2>&1)
   RC=$?
@@ -330,6 +339,24 @@ t_no_driver() {
   expect_call "install -y nvidia-utils-595$"
   expect_file "$FR/etc/modprobe.d/driver-fix-nouveau.conf"
   expect_out "redémarrage nécessaire"
+  no_crash; safety
+}
+
+t_ada_no_driver_nouveau_loaded() {
+  scenario ada_no_driver_nouveau_loaded
+  add_gpu 0000:01:00.0 0x10de 0x28e0 "NVIDIA Corporation AD107M [GeForce RTX 4060 Max-Q / Mobile]"
+  set_dmi LENOVO 82RG "Legion Slim 5 16APH8"
+  mkdir -p "$FR/sys/module/nouveau"
+  remove_stub nvidia-smi
+  installed linux-image-generic
+  printf 'driver   : nvidia-driver-580 - distro non-free recommended\n' >"$FAKE/ubuntu_drivers"
+  available nvidia-driver-580 "linux-modules-nvidia-580-$K" nvidia-utils-580
+  run_fix --yes
+  expect_out "Machine          LENOVO 82RG (Legion Slim 5 16APH8)"
+  expect_out "Pilote choisi par ubuntu-drivers pour ce GPU : nvidia-driver-580"
+  expect_call "install -y nvidia-driver-580$"
+  expect_call "install -y linux-modules-nvidia-580-$K$"
+  refute_out "exige les modules"
   no_crash; safety
 }
 
@@ -541,6 +568,126 @@ t_undo() {
   no_crash; safety
 }
 
+t_diagnose_step_count() {
+  scenario diagnose_step_count
+  setup_blackwell_proprietary
+  run_fix --diagnose
+  expect_out "1/3 · Analyse du système"
+  expect_out "3/3 · Diagnostic"
+  refute_out "/5 ·"
+}
+
+load_report() {
+  local f
+  f=$(ls "$T"/out/driver-fix-debug-*.txt 2>/dev/null | head -n1)
+  [[ -n $f ]] && ok_ || ko_ "rapport de debug introuvable dans $T/out"
+  OUT=$(cat "$f" 2>/dev/null)
+}
+
+t_debug_report() {
+  scenario debug_report
+  setup_blackwell_proprietary
+  set_dmi LENOVO 82JW "Legion 5 15ACH6H"
+  echo pc-de-camille >"$FR/proc/sys/kernel/hostname"
+  echo "BOOT_IMAGE=/vmlinuz-$K root=UUID=1b2c3d4e-1111-2222-3333-444455556666 ro quiet splash" >"$FR/proc/cmdline"
+  mkdir -p "$FR/var/lib/driver-fix" "$T/out"
+  echo 48151623 >"$FR/var/lib/driver-fix/mok-password"
+  echo "2026-11-20 10:00:00  mokutil 48151623 camille" >"$FR/var/lib/driver-fix/history.log"
+  EXTRA_ENV=(SUDO_USER=camille DRIVER_FIX_REPORT_DIR="$T/out")
+  run_fix --debug
+  expect_rc 0
+  expect_out "Mode debug : rien ne sera modifié"
+  expect_out "4/4 · Rapport de debug"
+  expect_out "Rapport de debug prêt"
+  expect_out "$T/out/driver-fix-debug-"
+  expect_out "/issues/new?template=bug_report.yml&title=%5BBug%5D%20GeForce%20RTX%205060"
+  expect_out "machine=LENOVO%2082JW%20%28Legion%205%2015ACH6H%29"
+  expect_out "10de%3A2d59"
+  expect_out "kernel=$K"
+  refute_call "install -y"
+  refute_call "remove -y"
+  refute_call "update-initramfs"
+  refute_call "prime-select"
+  refute_file "$FR/etc/modprobe.d/driver-fix-nvidia.conf"
+  refute_file "$FR/var/lib/driver-fix/last-run"
+  no_crash; safety
+  load_report
+  expect_out "# Rapport driver-fix v"
+  expect_out "LENOVO 82JW (Legion 5 15ACH6H)"
+  expect_out "10de:2d59 @ 0000:01:00.0"
+  expect_out "RmInitAdapter failed! (0x22:0x56:1017)"
+  expect_out "[problème] Le paquet nvidia-driver-595 installe la variante propriétaire"
+  expect_out "Variante requise       open (source : log)"
+  expect_out "root=UUID=<uuid>"
+  expect_out "## Journaux"
+  expect_out "## Paquets"
+  expect_out "GeForce RTX 5060"
+  refute_out "pc-de-camille"
+  refute_out "camille"
+  refute_out "1b2c3d4e-1111"
+  refute_out "48151623"
+  refute_out "PF0SECRET"
+  no_crash
+}
+
+t_debug_report_without_nvidia() {
+  scenario debug_report_without_nvidia
+  remove_stub nvidia-smi
+  mkdir -p "$T/out"
+  EXTRA_ENV=(DRIVER_FIX_REPORT_DIR="$T/out")
+  run_fix --debug
+  expect_rc 0
+  expect_out "Aucune carte NVIDIA détectée"
+  expect_out "3/3 · Rapport de debug"
+  refute_out "Mettre à jour linux-firmware"
+  refute_call "^apt-get"
+  no_crash; safety
+  load_report
+  expect_out "Rembrandt"
+  refute_out "Diagnostic de driver-fix"
+  no_crash
+}
+
+t_wsl_detected() {
+  scenario wsl_detected
+  echo 6.6.87.2-microsoft-standard-WSL2 >"$FAKE/kernel"
+  add_rtx5060
+  run_fix
+  expect_rc 0
+  expect_out "tourne sous WSL"
+  refute_call "^apt-get"
+  no_crash; safety
+}
+
+t_unknown_distro_suggests_debug() {
+  scenario unknown_distro
+  add_rtx5060
+  printf 'PRETTY_NAME="Gentoo Linux"\nID=gentoo\n' >"$FR/etc/os-release"
+  run_fix
+  expect_rc 1
+  expect_out "Distribution non supportée : Gentoo Linux"
+  expect_out "Relance avec --debug"
+  refute_call "^apt-get"
+  no_crash; safety
+}
+
+t_readme_documents_every_option() {
+  scenario readme_options
+  run_fix --help
+  local opt missing=0
+  for opt in $(grep -oE -- '--[a-z][a-z-]+' <<<"$OUT" | sort -u); do
+    grep -qF -- "\`$opt" "$HERE/../README.md" || { ko_ "option $opt absente du README"; missing=1; }
+  done
+  ((missing)) || ok_
+}
+
+t_changelog_has_current_version() {
+  scenario changelog
+  local v
+  v=$(sed -nE 's/^VERSION="([^"]+)"$/\1/p' "$SCRIPT")
+  grep -qF "## [$v]" "$HERE/../CHANGELOG.md" 2>/dev/null && ok_ || ko_ "CHANGELOG.md sans entrée pour la version $v"
+}
+
 t_os_release_does_not_clobber_version() {
   scenario os_release_version
   run_fix --help
@@ -559,6 +706,9 @@ t_unit_functions() {
     mkdir -p "$FAKE/mod/k1"; echo "Dual MIT/GPL" >"$FAKE/mod/k1/license"
     mkdir -p "$FAKE/mod/k2"; echo "NVIDIA" >"$FAKE/mod/k2/license"
     echo "k1=$(nv_mod_flavor k1) k2=$(nv_mod_flavor k2) k3=$(nv_mod_flavor k3)"
+    export LC_ALL=C.UTF-8
+    echo "url=$(urlencode "RTX 5060 / é·&")"
+    echo "pad=[$(pad "Noyaux installés" 18)]"
   ' _ "$SCRIPT" 2>&1)
   expect_out "nvidia-driver-595=proprietary"
   expect_out "nvidia-driver-595-open=open"
@@ -567,6 +717,8 @@ t_unit_functions() {
   expect_out "linux-modules-nvidia-595-7.0.0-42-generic=proprietary"
   expect_out "nvidia-dkms-595=proprietary"
   expect_out "k1=open k2=proprietary k3=none"
+  expect_out "url=RTX%205060%20%2F%20%C3%A9%C2%B7%26"
+  expect_out "pad=[Noyaux installés  ]"
 }
 
 TESTS=$(declare -F | awk '$3 ~ /^t_/ {print $3}')

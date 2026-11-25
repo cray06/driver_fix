@@ -1,0 +1,109 @@
+name: Le script n'a pas réparé mon PC
+description: L'écran externe ne marche toujours pas après driver-fix et un redémarrage.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler le problème !
+
+        **Avant de remplir ce formulaire**, crée le rapport de debug (il ne modifie rien sur ton PC) :
+
+        ```bash
+        wget -qO- https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh | sudo bash -s -- --debug
+        ```
+
+        Le lien affiché à la fin de la commande ouvre ce formulaire avec les premiers champs déjà remplis.
+        Le guide pas à pas est dans [CONTRIBUTING.md](https://github.com/cray06/driver_fix/blob/main/CONTRIBUTING.md#signaler-un-problème).
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vérifications
+      options:
+        - label: J'ai lancé le script, **redémarré** le PC, et le problème est toujours là.
+          required: true
+        - label: J'ai relu le rapport `--debug` et il ne contient rien que je ne veux pas rendre public.
+          required: true
+
+  - type: input
+    id: machine
+    attributes:
+      label: Modèle du PC
+      description: Marque et modèle exact (ex. Lenovo Legion 5 15ACH6H, ASUS TUF A15 FA507NV).
+      placeholder: Lenovo 82JW (Legion 5 15ACH6H)
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: Carte(s) graphique(s)
+      placeholder: "NVIDIA GeForce RTX 5060 Max-Q / Mobile + AMD Rembrandt [10de:2d59]"
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: Ubuntu 24.04.3 LTS
+    validations:
+      required: true
+
+  - type: input
+    id: kernel
+    attributes:
+      label: Noyau
+      placeholder: 6.14.0-36-generic
+
+  - type: input
+    id: version
+    attributes:
+      label: Version de driver-fix
+      placeholder: 2.1.0
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: Que se passe-t-il ?
+      options:
+        - L'écran externe reste noir / « pas de signal »
+        - L'écran externe est détecté mais l'image est mauvaise (résolution, scintillement, lenteur)
+        - Écran noir au démarrage, y compris l'écran du portable
+        - Le script s'arrête avec une erreur
+        - Autre (précise ci-dessous)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Ce que tu vois, à quel moment, sur quelle sortie (HDMI, USB-C, DisplayPort), avec quel écran.
+      placeholder: |
+        Après le script et le redémarrage, l'écran du portable marche mais l'écran HDMI affiche « pas de signal ».
+        Les paramètres d'affichage d'Ubuntu ne voient qu'un seul écran.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: Ce que tu as déjà essayé
+      placeholder: |
+        - autre câble HDMI
+        - sudo prime-select nvidia puis redémarrage
+        - option « Discrete GPU » dans le BIOS
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Rapport --debug
+      description: |
+        Glisse-dépose ici le fichier `driver-fix-debug-….txt` créé dans ton dossier personnel.
+        GitHub l'envoie et insère le lien tout seul.
+      placeholder: Glisse le fichier driver-fix-debug-….txt ici
+    validations:
+      required: true

@@ -3,11 +3,13 @@ FAKE=${FAKE:?FAKE non défini (stub de test)}
 rc=1
 for pat in "$@"; do
   [[ $pat == -* ]] && continue
+  re=${pat//./\\.}
+  re=${re//+/\\+}
+  re="^${re//\*/.*}\$"
   while read -r p; do
-    [[ -n $p ]] || continue
-    case $p in
-      $pat) printf 'ii |%s\n' "$p"; rc=0 ;;
-    esac
+    [[ -n $p && $p =~ $re ]] || continue
+    printf 'ii |%s\n' "$p"
+    rc=0
   done <"$FAKE/installed" 2>/dev/null
 done
 exit $rc

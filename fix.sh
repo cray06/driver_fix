@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 REPO_URL="https://github.com/cray06/driver_fix"
 RAW_URL="https://raw.githubusercontent.com/cray06/driver_fix/main/fix.sh"
 
@@ -10,12 +10,13 @@ STATE_DIR="$ROOT/var/lib/driver-fix"
 GRUB_FILE="$ROOT/etc/default/grub"
 GRUB_BACKUP="$GRUB_FILE.driver-fix.bak"
 
-OPT_DIAGNOSE=0 OPT_DRY_RUN=0 OPT_YES=1 OPT_NO_COLOR=0 OPT_UNDO=0 OPT_PRIME=""
+OPT_DIAGNOSE=0 OPT_DEBUG=0 OPT_DRY_RUN=0 OPT_YES=1 OPT_NO_COLOR=0 OPT_UNDO=0 OPT_PRIME=""
+ARGS_LINE=""
 
-FAMILY="" DISTRO_NAME="" DISTRO_ID="" DISTRO_VERSION="" RUNNING_KERNEL="" NEWEST_KERNEL=""
+FAMILY="" MACHINE_MODEL="" DISTRO_NAME="" DISTRO_ID="" DISTRO_VERSION="" RUNNING_KERNEL="" NEWEST_KERNEL=""
 KERNELS=() MISSING_KERNELS=() WRONG_KERNELS=()
 declare -A KMOD_FLAVOR=() KMOD_FILE=() KMOD_VERSION=() KMOD_SIGNER=()
-GPU_LINES=() CONNECTOR_LINES=() HAS_NVIDIA=0 HAS_OTHER_GPU=0 NV_DEVICE_ID="" NV_PCI_ADDR=""
+GPU_LINES=() CONNECTOR_LINES=() HAS_NVIDIA=0 HAS_OTHER_GPU=0 NV_DEVICE_ID="" NV_PCI_ADDR="" NV_GPU_NAME=""
 NV_TURING=0 NV_RECENT=0
 NV_LOADED=0 NV_LOADED_FLAVOR="" NOUVEAU_LOADED=0 NV_DRIVER_VERSION="" MODESET=""
 NV_SMI_STATE="absent" NV_SMI_OK=0 NV_SMI_MSG="" NV_MISMATCH=0
@@ -32,6 +33,7 @@ REBOOT_NEEDED=0 GPU_WORKING_NOW=0
 DONE_COUNT=0 FAILED=()
 STEP=0 TOTAL_STEPS=5
 HAS_TTY=0 FANCY=0 LOG_FILE=/dev/null
+REPORT_MAX_LINES=200
 
 NV_PKG_RE='^(nvidia-|libnvidia-|linux-(modules|objects|signatures)-nvidia-|xserver-xorg-video-nvidia-|libxnvctrl|screen-resolution-extra)'
 
@@ -56,7 +58,8 @@ warn() { printf '  %s⚠%s %s\n' "$YLW" "$R" "$*"; log "[warn] $*"; }
 fail() { printf '  %s✖%s %s\n' "$RED" "$R" "$*"; log "[fail] $*"; }
 info() { printf '  %s➜%s %s\n' "$CYN" "$R" "$*"; }
 note() { printf '    %s%s%s\n' "$D" "$*" "$R"; }
-kv()   { printf '  %s%-16s%s %s\n' "$D" "$1" "$R" "$2"; }
+pad() { local n=$(($2 - ${#1})); ((n < 1)) && n=1; printf '%s%*s' "$1" "$n" ''; }
+kv()   { printf '  %s%s%s%s\n' "$D" "$(pad "$1" 17)" "$R" "$2"; }
 
 banner() {
   printf '\n'
@@ -171,6 +174,27 @@ detect_distro() {
   esac
 }
 
+dmi() {
+  local f=$ROOT/sys/class/dmi/id/$1 v
+  [[ -r $f ]] || return 0
+  v=$(<"$f")
+  v=${v%"${v##*[![:space:]]}"}
+  printf '%s' "$v"
+}
+
+detect_machine() {
+  local vendor name version
+  vendor=$(dmi sys_vendor) name=$(dmi product_name) version=$(dmi product_version)
+  case ${version,,} in
+    "" | *"to be filled"* | *default* | *"system version"* | none | n/a | *"not applicable"* | *0123456789* | 1.0 | x.x) version="" ;;
+  esac
+  MACHINE_MODEL="$vendor $name${version:+ ($version)}"
+  MACHINE_MODEL=${MACHINE_MODEL# }
+  MACHINE_MODEL=${MACHINE_MODEL% }
+  [[ -n $MACHINE_MODEL ]] || MACHINE_MODEL="inconnue"
+  return 0
+}
+
 list_kernels() {
   local d k
   for d in "$ROOT"/lib/modules/*/; do
@@ -246,6 +270,7 @@ detect_gpus() {
         ((16#$NV_DEVICE_ID >= 16#1e00)) && NV_TURING=1
         ((16#$NV_DEVICE_ID >= 16#2900)) && NV_RECENT=1
         [[ -z $name ]] && name="NVIDIA [10de:$NV_DEVICE_ID]"
+        NV_GPU_NAME=$name
         ;;
       0x1002) HAS_OTHER_GPU=1; [[ -z $name ]] && name="AMD [1002:${device#0x}]" ;;
       0x8086) HAS_OTHER_GPU=1; [[ -z $name ]] && name="Intel [8086:${device#0x}]" ;;
@@ -539,7 +564,7 @@ analyze() {
   fi
   if ((REBOOTED_SINCE_FIX && !NV_SMI_OK)); then
     WARNINGS+=("Le PC a redémarré depuis la dernière réparation (${LAST_RUN_DATE:-date inconnue}) et le GPU ne répond toujours pas")
-    ADVICE+=("Joins /var/log/driver-fix.log et la sortie de --diagnose à une issue : $REPO_URL/issues")
+    ADVICE+=("Crée un rapport avec --debug et ouvre une issue : $REPO_URL/issues")
   fi
 }
 
@@ -1013,6 +1038,7 @@ no_nvidia() {
 
 show_system() {
   step "Analyse du système"
+  kv "Machine" "$MACHINE_MODEL"
   kv "Distribution" "$DISTRO_NAME"
   local fam
   case $FAMILY in
@@ -1139,7 +1165,7 @@ final_message() {
     local lines=("${YLW}${B}⚠ Réparation terminée avec ${#FAILED[@]} erreur(s) :${R}")
     local f
     for f in "${FAILED[@]}"; do lines+=("  • $f"); done
-    lines+=("" "Détails dans le journal : $LOG_FILE")
+    lines+=("" "Détails dans le journal : $LOG_FILE" "Besoin d'aide ? Relance avec --debug et ouvre une issue.")
     box "$YLW" "${lines[@]}"
   fi
 
@@ -1212,6 +1238,308 @@ undo() {
   fi
 }
 
+urlencode() {
+  local LC_ALL=C s=$1 out='' c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case $c in
+      [a-zA-Z0-9.~_-]) out+=$c ;;
+      *) printf -v c '%%%02X' "'$c"; out+=$c ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+invoking_home() {
+  local h=""
+  if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && command -v getent &>/dev/null; then
+    h=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+  fi
+  printf '%s' "${h:-${HOME:-}}"
+}
+
+report_dir() {
+  local d=${DRIVER_FIX_REPORT_DIR:-$(invoking_home)}
+  [[ -n $d && -d $d && -w $d ]] || d=${TMPDIR:-/tmp}
+  printf '%s' "$d"
+}
+
+rep_section() { printf '\n## %s\n' "$1"; }
+
+rep_block() {
+  printf '\n**%s**\n\n```\n' "$1"
+  awk -v n="${2:-$REPORT_MAX_LINES}" 'NR <= n { print } END { if (NR > n) printf "[... %d lignes non affichées]\n", NR - n; if (NR == 0) print "(vide)" }'
+  printf '```\n'
+}
+
+rep_missing() { printf '\n**%s** : %s\n' "$1" "$2"; }
+
+rep_cmd() {
+  local title=$1
+  shift
+  command -v "$1" &>/dev/null || { rep_missing "$title" "commande $1 absente"; return 0; }
+  { printf '$ %s\n' "$*"; timeout 30 "$@" 2>&1; } | rep_block "$title"
+}
+
+rep_file() {
+  local title=$1 f=$2
+  [[ -r $f ]] || { rep_missing "$title" "${f#"$ROOT"} absent"; return 0; }
+  tail -n "${3:-$REPORT_MAX_LINES}" "$f" | rep_block "$title (${f#"$ROOT"})"
+}
+
+rep_line() { printf '%s%s\n' "$(pad "$1" 23)" "$2"; }
+
+rep_summary() {
+  local g k p
+  {
+    rep_line "Machine" "$MACHINE_MODEL"
+    rep_line "Distribution" "$DISTRO_NAME ($DISTRO_ID $DISTRO_VERSION, famille $FAMILY)"
+    rep_line "Noyau actuel" "$RUNNING_KERNEL"
+    rep_line "Noyaux installés" "${KERNELS[*]}"
+    rep_line "Secure Boot" "$SECURE_BOOT"
+    for g in "${GPU_LINES[@]}"; do rep_line "GPU" "${g//|/ · }"; done
+    if ((HAS_NVIDIA)); then
+      rep_line "NVIDIA" "10de:$NV_DEVICE_ID @ $NV_PCI_ADDR (turing+ $NV_TURING, blackwell+ $NV_RECENT)"
+      rep_line "Module chargé" "${NV_LOADED_FLAVOR:-aucun}${NV_DRIVER_VERSION:+ $NV_DRIVER_VERSION}"
+      rep_line "Variante requise" "$WANT_FLAVOR${NV_OPEN_REQUIRED_SRC:+ (source : $NV_OPEN_REQUIRED_SRC)}"
+      rep_line "nvidia-smi" "$NV_SMI_STATE${NV_SMI_MSG:+ : $NV_SMI_MSG}"
+      rep_line "nouveau chargé" "$NOUVEAU_LOADED"
+      rep_line "nvidia-drm modeset" "${MODESET:-?}"
+      rep_line "PRIME" "${PRIME_MODE:-?}"
+      rep_line "Pilotes installés" "${DRIVER_PKGS[*]:-aucun}"
+      rep_line "Paquets NVIDIA" "${NV_PKGS[*]:-aucun}"
+      rep_line "DKMS" "${DKMS_LINES[*]:-rien}"
+      for k in "${KERNELS[@]}"; do
+        rep_line "Module $k" "${KMOD_FLAVOR[$k]:-none} ${KMOD_VERSION[$k]:-} ${KMOD_FILE[$k]:-}${KMOD_SIGNER[$k]:+ (signé : ${KMOD_SIGNER[$k]})}"
+      done
+    fi
+    rep_line "dpkg interrompu" "$DPKG_BROKEN"
+    rep_line "/boot libre" "${BOOT_FREE_KB:-?} Ko"
+    rep_line "Dernière réparation" "${LAST_RUN_DATE:-jamais}${LAST_RUN_DATE:+ (redémarré depuis : $REBOOTED_SINCE_FIX)}"
+  } | rep_block "État détecté par driver-fix"
+  ((HAS_NVIDIA)) || return 0
+  {
+    for p in "${PROBLEMS[@]}"; do printf '[problème] %s\n' "$p"; done
+    for p in "${WARNINGS[@]}"; do printf '[attention] %s\n' "$p"; done
+    for p in "${ADVICE[@]}"; do printf '[conseil] %s\n' "$p"; done
+  } | rep_block "Diagnostic de driver-fix"
+}
+
+rep_machine() {
+  local f v
+  for f in sys_vendor product_name product_version product_family product_sku board_vendor board_name \
+    board_version bios_vendor bios_version bios_date chassis_type; do
+    v=$(dmi "$f")
+    [[ -n $v ]] && rep_line "$f" "$v"
+  done
+  [[ -r $ROOT/proc/cpuinfo ]] && rep_line "cpu" "$(grep -m1 'model name' "$ROOT/proc/cpuinfo" | cut -d: -f2- | sed 's/^ *//')"
+  [[ -r $ROOT/proc/meminfo ]] && rep_line "ram" "$(awk '/^MemTotal/ {printf "%.1f Go", $2 / 1048576}' "$ROOT/proc/meminfo")"
+  command -v systemd-detect-virt &>/dev/null && rep_line "virtualisation" "$(systemd-detect-virt 2>/dev/null)"
+  return 0
+}
+
+rep_sessions() {
+  command -v loginctl &>/dev/null || { echo "loginctl absent"; return 0; }
+  local u=${SUDO_USER:-${USER:-}} s
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$u" '$3 == u {print $1}'); do
+    loginctl show-session "$s" -p Type -p Desktop -p Class -p State -p Remote 2>/dev/null | tr '\n' ' '
+    printf '\n'
+  done
+}
+
+rep_gpu_sysfs() {
+  local d f
+  for d in "$ROOT"/sys/bus/pci/devices/*; do
+    [[ -r $d/class && $(<"$d/class") == 0x03* ]] || continue
+    printf '%s vendor=%s device=%s' "${d##*/}" "$(<"$d/vendor")" "$(<"$d/device")"
+    for f in subsystem_vendor subsystem_device boot_vga power_state power/runtime_status current_link_speed current_link_width; do
+      [[ -r $d/$f ]] && printf ' %s=%s' "${f##*/}" "$(<"$d/$f")"
+    done
+    printf ' driver=%s\n' "$(basename "$(readlink "$d/driver" 2>/dev/null)" 2>/dev/null)"
+  done
+}
+
+rep_displays() {
+  local c card
+  for card in "$ROOT"/sys/class/drm/card[0-9]*; do
+    [[ $card == *-* || ! -e $card ]] && continue
+    printf '%s driver=%s pci=%s\n' "${card##*/}" \
+      "$(basename "$(readlink "$card/device/driver" 2>/dev/null)" 2>/dev/null)" \
+      "$(basename "$(readlink "$card/device" 2>/dev/null)" 2>/dev/null)"
+  done
+  for c in "$ROOT"/sys/class/drm/card*-*; do
+    [[ -r $c/status ]] || continue
+    printf '%s status=%s enabled=%s mode=%s\n' "${c##*/}" "$(<"$c/status")" \
+      "$(cat "$c/enabled" 2>/dev/null)" "$(head -n1 "$c/modes" 2>/dev/null)"
+  done
+}
+
+rep_firmware() {
+  local f
+  [[ -d $ROOT/lib/firmware/nvidia ]] || { echo "/lib/firmware/nvidia absent"; return 0; }
+  find "$ROOT/lib/firmware/nvidia" -maxdepth 2 \( -name 'gsp*' -o -type d \) 2>/dev/null | sort |
+    while IFS= read -r f; do printf '%s\n' "${f#"$ROOT"}"; done
+}
+
+collect_debug_report() {
+  local k f home klog_re='nvidia|nvrm|nouveau|drm|gsp|i915|amdgpu|xe |secure ?boot|lockdown|module verification|pcieport'
+  home=$(invoking_home)
+
+  printf '# Rapport driver-fix v%s\n\n' "$VERSION"
+  printf -- '- Date : %s\n' "$(date '+%F %T %z')"
+  printf -- '- Lancé en root : %s\n' "$([[ $EUID -eq 0 ]] && echo oui || echo non)"
+  printf -- '- Options : %s\n' "${ARGS_LINE:-aucune}"
+
+  rep_section "Résumé"
+  rep_summary
+
+  rep_section "Machine"
+  rep_machine | rep_block "Matériel (DMI)"
+
+  rep_section "Système"
+  rep_file "os-release" "$ROOT/etc/os-release"
+  rep_cmd "Noyau" uname -a
+  rep_file "Paramètres de démarrage" "$ROOT/proc/cmdline"
+  rep_sessions | rep_block "Sessions graphiques (loginctl)"
+
+  rep_section "Cartes graphiques et écrans"
+  if command -v lspci &>/dev/null; then
+    lspci -nnk 2>/dev/null | awk '/^[0-9a-f]/ { show = /VGA|3D|Display/ } show' | rep_block "lspci -nnk (cartes graphiques)"
+  else
+    rep_missing "lspci" "commande absente (paquet pciutils)"
+  fi
+  rep_gpu_sysfs | rep_block "Cartes graphiques (sysfs)"
+  rep_displays | rep_block "Sorties d'affichage (DRM)"
+
+  rep_section "Pilote NVIDIA"
+  rep_file "Version du pilote chargé" "$ROOT/proc/driver/nvidia/version"
+  if command -v lsmod &>/dev/null; then
+    lsmod 2>/dev/null | grep -E '^(nvidia|nouveau|amdgpu|i915|xe|drm)' | rep_block "Modules chargés (lsmod)"
+  fi
+  for f in "$ROOT"/sys/module/nvidia_drm/parameters/modeset "$ROOT"/sys/module/nvidia_drm/parameters/fbdev; do
+    [[ -r $f ]] && rep_line "${f#"$ROOT"}" "$(<"$f")"
+  done | rep_block "Paramètres nvidia-drm"
+  for k in "${KERNELS[@]}"; do
+    modinfo -k "$k" nvidia 2>&1 | grep -E '^(filename|version|license|signer|sig_key|vermagic|srcversion|modinfo):' |
+      rep_block "modinfo nvidia ($k)"
+  done
+  rep_cmd "nvidia-smi" nvidia-smi
+  rep_firmware | rep_block "Firmware NVIDIA"
+
+  rep_section "Paquets"
+  if command -v dpkg-query &>/dev/null; then
+    dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' 2>/dev/null |
+      grep -E ' (nvidia|libnvidia|linux-(image|headers|modules|signatures|objects|firmware|generic|hwe)|xserver-xorg-video|ubuntu-drivers|mokutil|shim-signed|dkms)' |
+      grep -v '^un' | rep_block "Paquets installés (dpkg)" 300
+    rep_cmd "Paquets interrompus" dpkg --audit
+    rep_cmd "Paquets bloqués" apt-mark showhold
+    ((${#DRIVER_PKGS[@]})) && rep_cmd "Versions disponibles" apt-cache policy "${DRIVER_PKGS[@]}"
+    grep -rhsE '^[[:space:]]*(deb |Types:|URIs:|Suites:|Components:)' "$ROOT/etc/apt/sources.list" "$ROOT/etc/apt/sources.list.d" |
+      rep_block "Dépôts APT"
+  fi
+  command -v ubuntu-drivers &>/dev/null && rep_cmd "Pilotes proposés" ubuntu-drivers devices
+  command -v dkms &>/dev/null && rep_cmd "DKMS" dkms status
+  command -v rpm &>/dev/null && rpm -qa 2>/dev/null | grep -Ei 'nvidia|kmod|akmod|kernel-(core|devel)' | sort | rep_block "Paquets (rpm)"
+  command -v pacman &>/dev/null && pacman -Q 2>/dev/null | grep -Ei 'nvidia|^linux' | rep_block "Paquets (pacman)"
+
+  rep_section "Configuration"
+  grep -HrsE 'nvidia|nouveau' "$ROOT/etc/modprobe.d" "$ROOT/lib/modprobe.d" "$ROOT/usr/lib/modprobe.d" |
+    while IFS= read -r f; do printf '%s\n' "${f#"$ROOT"}"; done | rep_block "modprobe.d (nvidia / nouveau)"
+  grep -sE '^[[:space:]]*GRUB_' "$GRUB_FILE" | rep_block "GRUB (/etc/default/grub)"
+  if [[ -r $ROOT/etc/X11/xorg.conf ]]; then
+    rep_file "Configuration Xorg" "$ROOT/etc/X11/xorg.conf"
+  else
+    rep_missing "Configuration Xorg" "/etc/X11/xorg.conf absent (normal)"
+  fi
+  ls -1 "$ROOT/etc/X11/xorg.conf.d" "$ROOT/usr/share/X11/xorg.conf.d" 2>/dev/null | rep_block "xorg.conf.d"
+  grep -sE '^[[:space:]]*#?[[:space:]]*WaylandEnable' "$ROOT/etc/gdm3/custom.conf" | rep_block "GDM (Wayland)"
+  command -v prime-select &>/dev/null && rep_cmd "PRIME" prime-select query
+  command -v mokutil &>/dev/null && rep_cmd "Secure Boot" mokutil --sb-state
+  for f in "$ROOT/var/lib/shim-signed/mok/MOK.der" "$ROOT/var/lib/dkms/mok.pub" "$ROOT/etc/pki/akmods/certs/public_key.der"; do
+    [[ -e $f ]] && printf '%s\n' "${f#"$ROOT"}"
+  done | rep_block "Clés de signature MOK présentes"
+
+  rep_section "Journaux"
+  kernel_log | grep -Ei "$klog_re" | tail -n 150 | rep_block "Journal noyau, démarrage actuel (filtré)"
+  if command -v journalctl &>/dev/null; then
+    journalctl -k -b -1 --no-pager 2>/dev/null | grep -Ei "$klog_re" | tail -n 80 | rep_block "Journal noyau, démarrage précédent (filtré)"
+    journalctl -b 0 -p 3 -o cat --no-pager 2>/dev/null | awk '!seen[$0]++' | tail -n 60 |
+      rep_block "Erreurs système, démarrage actuel (sans doublons)"
+  fi
+  for f in "$ROOT/var/log/Xorg.0.log" "${home:+$home/.local/share/xorg/Xorg.0.log}"; do
+    [[ -n $f && -r $f ]] || continue
+    grep -E '\((EE|WW)\)|NVIDIA|modeset' "$f" | tail -n 60 | rep_block "Xorg (${f#"$ROOT"})"
+  done
+
+  rep_section "Historique driver-fix"
+  rep_file "Dernière réparation" "$STATE_DIR/last-run"
+  rep_file "Changements" "$STATE_DIR/history.log" 60
+  [[ -f $LOG_FILE ]] && rep_file "Journal driver-fix" "$LOG_FILE" 250
+  return 0
+}
+
+sanitize_report() {
+  local s host="" u pw
+  s=$(<"$1")
+  [[ -r $ROOT/proc/sys/kernel/hostname ]] && host=$(<"$ROOT/proc/sys/kernel/hostname")
+  [[ ${#host} -ge 3 && $host != localhost ]] && s=${s//"$host"/"<nom-du-pc>"}
+  for u in "${SUDO_USER:-}" "${USER:-}" "${LOGNAME:-}"; do
+    [[ ${#u} -ge 3 && $u != root ]] && s=${s//"$u"/"<utilisateur>"}
+  done
+  if [[ -r $STATE_DIR/mok-password ]]; then
+    pw=$(<"$STATE_DIR/mok-password")
+    [[ -n $pw ]] && s=${s//"$pw"/"<mot-de-passe-mok>"}
+  fi
+  sed -E 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/<uuid>/g' <<<"$s"
+}
+
+issue_url() {
+  local gpu="" g short title
+  for g in "${GPU_LINES[@]}"; do gpu+="${gpu:+ + }${g%%|*}"; done
+  ((HAS_NVIDIA)) && gpu+=" [10de:$NV_DEVICE_ID]"
+  short=${NV_GPU_NAME:-${GPU_LINES[0]%%|*}}
+  [[ $short =~ \[([^]]+)\] ]] && short=${BASH_REMATCH[1]}
+  title="[Bug] ${short:-GPU inconnu} · $DISTRO_NAME"
+  printf '%s/issues/new?template=bug_report.yml&title=%s&machine=%s&gpu=%s&distro=%s&kernel=%s&version=%s' "$REPO_URL" \
+    "$(urlencode "$title")" "$(urlencode "$MACHINE_MODEL")" "$(urlencode "${gpu:-inconnu}")" \
+    "$(urlencode "$DISTRO_NAME")" "$(urlencode "$RUNNING_KERNEL")" "$(urlencode "$VERSION")"
+}
+
+debug_report() {
+  step "Rapport de debug"
+  local dir file tmp
+  dir=$(report_dir)
+  file=$dir/driver-fix-debug-$(date '+%Y%m%d-%H%M%S').txt
+  tmp=$(mktemp) || { fail "Impossible de créer un fichier temporaire"; return 1; }
+  info "Collecte des informations (quelques secondes)…"
+  collect_debug_report >"$tmp" 2>&1
+  if ! sanitize_report "$tmp" 2>/dev/null >"$file"; then
+    file=${TMPDIR:-/tmp}/${file##*/}
+    sanitize_report "$tmp" >"$file"
+  fi
+  rm -f "$tmp"
+  [[ $EUID -eq 0 && -n ${SUDO_USER:-} ]] && chown "$SUDO_USER": "$file" 2>/dev/null
+  log "Rapport de debug : $file"
+
+  printf '\n%s----- début du rapport -----%s\n' "$D" "$R"
+  cat "$file"
+  printf '%s----- fin du rapport -----%s\n' "$D" "$R"
+
+  box "$CYN" \
+    "${B}Rapport de debug prêt${R} (rien n'a été modifié sur ton PC)" \
+    "" \
+    "Fichier : ${B}$file${R}" \
+    "" \
+    "Pour demander de l'aide :" \
+    "  1. ouvre le lien ci-dessous (Ctrl + clic), connecté à GitHub" \
+    "  2. glisse ce fichier dans le champ « Rapport --debug »" \
+    "  3. décris ce que tu vois et ce que tu as essayé" \
+    "" \
+    "${D}Retirés du rapport : nom d'utilisateur, nom du PC, UUID.${R}" \
+    "${D}Guide complet : $REPO_URL/blob/main/CONTRIBUTING.md${R}"
+  printf '\n  %s\n\n' "$(issue_url)"
+}
+
 usage() {
   cat <<EOF
 driver-fix v$VERSION — répare l'HDMI / écran externe des PC Linux avec carte NVIDIA
@@ -1222,6 +1550,7 @@ Usage :
 
 Options :
   -d, --diagnose      Analyse seulement, ne modifie rien
+      --debug         Crée un rapport complet (machine, pilote, journaux) à joindre à une issue
   -n, --dry-run       Montre ce qui serait fait, sans rien modifier
   -i, --interactive   Pose les questions au lieu de tout faire automatiquement
   -p, --prime MODE    Force le mode PRIME : on-demand | nvidia | intel
@@ -1238,6 +1567,7 @@ parse_args() {
   while (($#)); do
     case $1 in
       -d | --diagnose) OPT_DIAGNOSE=1 ;;
+      --debug) OPT_DEBUG=1 OPT_DIAGNOSE=1 ;;
       -n | --dry-run) OPT_DRY_RUN=1 ;;
       -y | --yes) OPT_YES=1 ;;
       -i | --interactive) OPT_YES=0 ;;
@@ -1285,7 +1615,10 @@ take_lock() {
 }
 
 main() {
+  ARGS_LINE="$*"
   parse_args "$@"
+  ((OPT_DIAGNOSE)) && TOTAL_STEPS=3
+  ((OPT_DEBUG)) && TOTAL_STEPS=4
   setup_colors
   if [[ -z ${DRIVER_FIX_TEST:-} ]]; then
     { : </dev/tty; } 2>/dev/null && HAS_TTY=1
@@ -1309,7 +1642,11 @@ main() {
 
   banner
   ((OPT_DRY_RUN)) && printf '  %sMode simulation : rien ne sera modifié%s\n' "$YLW" "$R"
-  ((OPT_DIAGNOSE)) && printf '  %sMode diagnostic : rien ne sera modifié%s\n' "$YLW" "$R"
+  if ((OPT_DEBUG)); then
+    printf '  %sMode debug : rien ne sera modifié, un rapport va être créé%s\n' "$YLW" "$R"
+  elif ((OPT_DIAGNOSE)); then
+    printf '  %sMode diagnostic : rien ne sera modifié%s\n' "$YLW" "$R"
+  fi
 
   if ((OPT_UNDO)); then
     TOTAL_STEPS=1
@@ -1318,6 +1655,7 @@ main() {
   fi
 
   detect_distro
+  detect_machine
   detect_kernels
   detect_gpus
   detect_connectors
@@ -1327,12 +1665,22 @@ main() {
   detect_last_run
   decide_flavor
   analyze
+  ((HAS_NVIDIA)) || TOTAL_STEPS=$((2 + OPT_DEBUG))
+
+  if [[ ${RUNNING_KERNEL,,} == *microsoft* ]] && ((!OPT_DEBUG)); then
+    box "$YLW" "${B}Ce terminal tourne sous WSL (Linux dans Windows).${R}" "" \
+      "Ici, la carte graphique et l'HDMI sont gérés par Windows :" \
+      "mets à jour le pilote NVIDIA depuis Windows (GeForce Experience / NVIDIA App)." \
+      "Ce script sert pour un PC qui démarre vraiment sous Linux."
+    exit 0
+  fi
 
   show_system
   show_gpus
 
   if ((!HAS_NVIDIA)); then
     no_nvidia
+    ((OPT_DEBUG)) && debug_report
     exit 0
   fi
 
@@ -1345,6 +1693,11 @@ main() {
     for k in "${KERNELS[@]}"; do printf 'Module %s: %s %s %s\n' "$k" "${KMOD_FLAVOR[$k]}" "${KMOD_VERSION[$k]}" "${KMOD_FILE[$k]}"; done
     printf 'Problèmes:\n'; printf '  - %s\n' "${PROBLEMS[@]}" "${WARNINGS[@]}"
   } >>"$LOG_FILE" 2>/dev/null
+
+  if ((OPT_DEBUG)); then
+    debug_report
+    exit 0
+  fi
 
   if ((OPT_DIAGNOSE)); then
     printf '\n'
@@ -1360,7 +1713,7 @@ main() {
       ;;
     unknown)
       box "$RED" "Distribution non supportée : $DISTRO_NAME" \
-        "Ouvre une issue sur $REPO_URL" "en collant le résultat de --diagnose."
+        "Relance avec --debug puis ouvre une issue sur" "$REPO_URL/issues en y joignant le rapport."
       exit 1
       ;;
   esac
